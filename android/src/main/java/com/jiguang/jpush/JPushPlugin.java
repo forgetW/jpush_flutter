@@ -1,6 +1,8 @@
 package com.jiguang.jpush;
 
+import android.app.ActivityManager;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
@@ -43,6 +45,7 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler {
 
     private boolean dartIsReady = false;
     private boolean jpushDidinit = false;
+    private boolean autoOpenApp = true;
 
     private List<Result> getRidCache;
 
@@ -80,6 +83,8 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler {
             result.success("Android " + android.os.Build.VERSION.RELEASE);
         } else if (call.method.equals("setup")) {
             setup(call, result);
+        } else if (call.method.equals("autoOpenApp")) {
+            autoOpenApp = false;
         } else if (call.method.equals("setTags")) {
             setTags(call, result);
         } else if (call.method.equals("cleanTags")) {
@@ -133,7 +138,7 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler {
         if (enable == null) {
             enable = false;
         }
-        JCoreInterface.setWakeEnable(context,enable);
+        JCoreInterface.setWakeEnable(context, enable);
     }
 
     // 主线程再返回数据
@@ -144,10 +149,10 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler {
             @Override
             public void run() {
                 if (result == null && method != null) {
-                    if( null != channel){
-                        channel.invokeMethod(method,map);
-                    }else {
-                        Log.d(TAG,"channel is null do nothing");
+                    if (null != channel) {
+                        channel.invokeMethod(method, map);
+                    } else {
+                        Log.d(TAG, "channel is null do nothing");
                     }
                 } else {
                     result.success(map);
@@ -254,6 +259,7 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler {
         callbackMap.put(sequence, result);
         JPushInterface.getAllTags(context, sequence);
     }
+
     public void getAlias(MethodCall call, Result result) {
         Log.d(TAG, "getAlias： ");
 
@@ -434,11 +440,38 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler {
             JPushPlugin.transmitNotificationOpen(title, alert, extras);
 
             Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
+            try {
+                if (JPushPlugin.instance.autoOpenApp) {
+                    if (!isAppRunning(context)) {  //应用在前台  不新开堆栈
+                        lauchApp(context, launch);
+                    }
+                }else {
+                    lauchApp(context, launch);
+                }
+            } catch (Exception e) {
+                lauchApp(context, launch);
+            }
+        }
+
+        private void lauchApp(Context context, Intent launch) {
             if (launch != null) {
                 launch.addCategory(Intent.CATEGORY_LAUNCHER);
                 launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                 context.startActivity(launch);
             }
+        }
+
+        public static boolean isAppRunning(Context context) {
+            if (context != null) {
+                ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+                ComponentName cn = am.getRunningTasks(1).get(0).topActivity;
+                String currentPackageName = cn.getPackageName();
+                if (!TextUtils.isEmpty(currentPackageName) && currentPackageName.equals(context.getPackageName())) {
+                    return true;
+                }
+                return false;
+            }
+            return false;
         }
 
         private void handlingNotificationReceive(Context context, Intent intent) {
@@ -502,13 +535,13 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler {
 
     }
 
-    public static void onNotifyMessageUnShow( NotificationMessage notificationMessage) {
-        Log.e(TAG,"[onNotifyMessageUnShow] message:"+notificationMessage);
+    public static void onNotifyMessageUnShow(NotificationMessage notificationMessage) {
+        Log.e(TAG, "[onNotifyMessageUnShow] message:" + notificationMessage);
         if (instance == null) {
             Log.d(TAG, "the instance is null");
             return;
         }
-        Map<String, Object> notification= new HashMap<>();
+        Map<String, Object> notification = new HashMap<>();
         notification.put("title", notificationMessage.notificationTitle);
         notification.put("alert", notificationMessage.notificationContent);
         notification.put("extras", getExtras(notificationMessage));
@@ -516,8 +549,8 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler {
     }
 
 
-    private static Map<String,Object> getExtras(NotificationMessage notificationMessage){
-        Map<String, Object> extras= new HashMap<>();
+    private static Map<String, Object> getExtras(NotificationMessage notificationMessage) {
+        Map<String, Object> extras = new HashMap<>();
         try {
             extras.put(JPushInterface.EXTRA_MSG_ID, notificationMessage.msgId);
             extras.put(JPushInterface.EXTRA_NOTIFICATION_ID, notificationMessage.notificationId);
@@ -544,11 +577,12 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler {
             if (!TextUtils.isEmpty(notificationMessage.notificationLargeIcon)) {
                 extras.put(JPushInterface.EXTRA_NOTIFICATION_LARGET_ICON, notificationMessage.notificationLargeIcon);
             }
-        }catch (Throwable e){
-            Log.e(TAG,"[onNotifyMessageUnShow] e:"+e.getMessage());
+        } catch (Throwable e) {
+            Log.e(TAG, "[onNotifyMessageUnShow] e:" + e.getMessage());
         }
         return extras;
     }
+
     static void transmitNotificationReceive(String title, String alert, Map<String, Object> extras) {
         Log.d(TAG, "transmitNotificationReceive " + "title=" + title + "alert=" + alert + "extras=" + extras);
 
